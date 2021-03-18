@@ -2,7 +2,7 @@
 
 The Nebraska Courts E-Services Scraper allows authorized users of Justice E-Services to speed up workflows involving the monitoring of eviction cases in Nebraska and outreach to defendants in eviction cases. 
 
-https://github.com/amsclark/NECourtsE-ServicesEvictionScraper/blob/main/screenshot.png?raw=true
+https://github.com/amsclark/NECourtsE-ServicesEvictionScraper/blob/main/screenshot.png
 
 As with all software involving automation of interactions with web servers, please be considerate of how often you run this software to minimize burden on E-Services servers.
 
