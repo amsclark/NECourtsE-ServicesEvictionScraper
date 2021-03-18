@@ -20,9 +20,7 @@ Steps 1-3 are not necessary if you already have Python 3 installed and working w
 1. Install Python from https://ninite.com/pythonx3/ if it is not already installed.
 2. Add C:\Program Files\Python39 to your path. You can do this in Windows Explorer by right-clicking on "This PC", selecting "Properties" then "Advanced system settings", selecting the "Advanced" tab, and then clicking "Environment Variables". Click on "Path" and "Edit". Then click "New" and add the path. Click "OK" on all open dialogs.
 3. Click on the start button and search for "manage app execution aliases". Switch "App Installer" off for "python.exe" and "python3.exe"
-4. Open a terminal window and install the requests module with `python.exe -m pip install requests` if you don't already have it installed
-5. install the BeautifulSoup module with `python.exe -m pip install bs4` if you don't already have it installed
-6. Install html5lib with `python -m pip install html5lib`
+4. Open a terminal window and install the requests module with `python.exe -m pip install bs4 requests lxml` if you don't already have these modules installed
 7. Download the script by going to https://raw.githubusercontent.com/amsclark/NECourtsE-ServicesEvictionScraper/main/Scraper.py in your browser, right-clicking in the page and selecting "Save As." Save it in a location where you are going to want to run it from. Note that the .csv files it generates will be outputted to the same folder. So you may want to make a new empty folder within your Documents to save the script to and execute it from.
 8. Open a terminal window in the folder where you saved the file by right-clicking in the folder and selecting "Open in Windows Terminal"
 9. Start the scraper by typing `python.exe .\Scraper.py`
