@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import *
 import sys
 import datetime
-import urllib.parse
+import urllib
 import requests
 from requests.auth import HTTPBasicAuth
 from bs4 import BeautifulSoup
