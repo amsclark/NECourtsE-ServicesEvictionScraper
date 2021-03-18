@@ -12,7 +12,6 @@ The output of scraped information is dumped to .csv spreadsheet files in the fol
 
 This tool was developed on Windows and uses the winsound library to play a beep when the process finishes. If you are running on Linux, commenting out the winsound import and commenting out line 110 that reads `winsound.Beep(2500,250)` should allow it to run.
 
-You may need to install the tkinter and beautifulsoup Python libraries if they are not already installed. 
 
 ### Installation Instructions
 
