@@ -42,7 +42,7 @@ def scrapeCalendar():
     addresses = list()
     address = list()
     for county in counties_list:
-        print("Getting case numbers for eviction cases (Restitution, Real Fed or LLT is in description) for " + targetDate + " from the calendar for " + county + " county...")
+        print("Getting case numbers for eviction cases (Restitution, Real Fed, FED or LLT is in description) for " + targetDate + " from the calendar for " + county + " county...")
         root.update_idletasks()
         #label1 = tk.Label(root, text="Getting case numbers from " + county + " county.")
         params = {
@@ -57,7 +57,7 @@ def scrapeCalendar():
         soup = BeautifulSoup(response.content, 'lxml')
         rows = soup.find_all('tr')
         for row in rows:
-            if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text():
+            if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text() or "FED" in row.get_text():
                 listrow = row.get_text().splitlines()
                 if ("CR" not in listrow[6]):
                     listrow.append(county)
@@ -88,18 +88,30 @@ def scrapeCalendar():
         docket_blocks = docket_soup.find_all('pre')
         attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
         addresslines = docket_blocks[1].get_text().splitlines()
+        addresslines_no_attys = list()
         if attorney_column_offset > 0:
             for addressline in addresslines:
-                addressline = addressline[0:attorney_column_offset]
+                addresslines_no_attys.append(addressline[0:attorney_column_offset])
+        addresslines = addresslines_no_attys
+        addresslines_trimmed = list()
+        for addressline in addresslines:
+            addresslines_trimmed.append(addressline.strip())
+        addresslines = addresslines_trimmed
         start_yet = 0
         defendant_count = 0
+        current_line = -1
         for addressline in addresslines:
-            addressline = addressline.strip()
+            current_line = current_line + 1
             if addressline.find("Defendant") > -1:
                 start_yet = 1
                 defendant_count = defendant_count + 1
             if start_yet == 1 and defendant_count == 1:
                 address.append(addressline)
+            if start_yet == 1 and defendant_count > 1:
+                if addressline.find("Defendant") > -1:
+                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1]:
+                        address[2] = address[2] + ", " + (addresslines[current_line + 1])
+            
     for address in addresses:
         if (len(address) == 5):
             address.insert(4, " ")
@@ -108,7 +120,7 @@ def scrapeCalendar():
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     print("Writing csv spreadsheet file")
     with open(filename, "w", newline="") as f:
-        writer = csv.writer(f)
+        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerows(addresses)
     winsound.Beep(2500,250)
     print("Done.")
