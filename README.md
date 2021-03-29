@@ -6,6 +6,8 @@ The Nebraska Courts E-Services Scraper allows authorized users of Justice E-Serv
 
 As with all software involving automation of interactions with web servers, please be considerate of how often you run this software to minimize burden on E-Services servers.
 
+Also please check the terms of use of any system you intend to scrape before scraping. The organization I developed this for already had gotten permission from the courts to automate interactions with the court docketing system and had been doing so in a different way for several years before this tool was developed. 
+
 Although this software is licensed under a public domain license and may be used without license restriction, this software was developed with humanitarian and charitable purposes in mind, with the intention of allowing tenant advocates to monitor and conduct outreach to tenants at risk of homelessness. 
 
 This software requires Python. It runs with a GUI interface, but messages about status of the scraping process are output to the console, so it should be launched from the console.
