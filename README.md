@@ -26,5 +26,6 @@ Steps 1-3 are not necessary if you already have Python 3 installed and working w
 3. Click on the start button and search for "manage app execution aliases". Switch "App Installer" off for "python.exe" and "python3.exe"
 4. Open a terminal window and install the beautifulsoup, requests, and lxml modules with `python.exe -m pip install bs4 requests lxml` if you don't already have these modules installed
 7. Download the script by going to https://raw.githubusercontent.com/amsclark/NECourtsE-ServicesEvictionScraper/main/Scraper.py in your browser, right-clicking in the page and selecting "Save As." Save it in a location where you are going to want to run it from. Note that the .csv files it generates will be outputted to the same folder. So you may want to make a new empty folder within your Documents to save the script to and execute it from.
-8. Open a terminal window in the folder where you saved the file by right-clicking in the folder and selecting "Open in Windows Terminal"
-9. Start the scraper by typing `python.exe .\Scraper.py`
+8. If desired, download run.bat from https://raw.githubusercontent.com/amsclark/NECourtsE-ServicesEvictionScraper/main/run.bat in the same manner. All that this batch file does is run the command listed in #10 so the program can be launched by double-clicking run.bat. 
+9. Open a terminal window in the folder where you saved the file by right-clicking in the folder and selecting "Open in Windows Terminal". Skip this is using the run.bat.
+10. Start the scraper by typing `python.exe .\Scraper.py` or double-clicking run.bat. 
