@@ -115,6 +115,7 @@ def scrapeCalendar():
     for address in addresses:
         if (len(address) == 5):
             address.insert(4, " ")
+        address[5] = " ".join(address[5].split())
         address.append(address[0][120:122] + "CI" + address[0][131:138])
         address.append(list(county_numbers_dict.keys())[list(county_numbers_dict.values()).index(address[0][94:96])])
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
