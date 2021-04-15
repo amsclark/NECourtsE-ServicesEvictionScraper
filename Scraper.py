@@ -109,7 +109,7 @@ def scrapeCalendar():
                 address.append(addressline)
             if start_yet == 1 and defendant_count > 1:
                 if addressline.find("Defendant") > -1:
-                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1]:
+                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1]:
                         address[2] = address[2] + ", " + (addresslines[current_line + 1])
             
     for address in addresses:
@@ -118,6 +118,12 @@ def scrapeCalendar():
         address[5] = " ".join(address[5].split())
         address.append(address[0][120:122] + "CI" + address[0][131:138])
         address.append(list(county_numbers_dict.keys())[list(county_numbers_dict.values()).index(address[0][94:96])])
+        address.pop(1)
+        address[2] = address[2] + " " + address[3]
+        address.pop(3)
+        address[2].rstrip(" ,")
+    headers = ['url', 'name', 'address', 'city state zip', 'case number', 'county']
+    addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     print("Writing csv spreadsheet file")
     with open(filename, "w", newline="") as f:
@@ -252,6 +258,7 @@ user_entry_label = Label(cred_frame, text="Username")
 user_entry=Entry(cred_frame)
 pass_entry_label = Label(cred_frame, text="Password")
 pass_entry=Entry(cred_frame)
+pass_entry.config(show="*")
 
 date_frame.grid(row=0, column=1, rowspan=5, padx=10, pady=10)
 label1.grid(row=0, column=0)
