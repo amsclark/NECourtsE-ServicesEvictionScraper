@@ -1,5 +1,6 @@
 # Created by Alexander Clark of Metatheria, LLC
 # Creative Commons CC0 v1.0 Universal Public Domain Dedication. No Rights Reserved
+# Last revised 2021-04-26
 
 import tkinter as tk
 from tkinter import *
@@ -102,6 +103,12 @@ def scrapeCalendar():
         current_line = -1
         for addressline in addresslines:
             current_line = current_line + 1
+            if addressline.find("Limited Representation Attorney") > -1:
+                start_yet = 0
+                defendant_count = 0
+            if addressline.find(" owes ") > -1:
+                start_yet = 0
+                defendant_count = 0
             if addressline.find("Defendant") > -1:
                 start_yet = 1
                 defendant_count = defendant_count + 1
@@ -111,6 +118,7 @@ def scrapeCalendar():
                 if addressline.find("Defendant") > -1:
                     if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1]:
                         address[2] = address[2] + ", " + (addresslines[current_line + 1])
+
             
     for address in addresses:
         if (len(address) == 5):
