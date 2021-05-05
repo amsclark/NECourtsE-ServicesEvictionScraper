@@ -1,6 +1,5 @@
 # Created by Alexander Clark of Metatheria, LLC
 # Creative Commons CC0 v1.0 Universal Public Domain Dedication. No Rights Reserved
-# Last revised 2021-04-26
 
 import tkinter as tk
 from tkinter import *
@@ -116,7 +115,7 @@ def scrapeCalendar():
                 address.append(addressline)
             if start_yet == 1 and defendant_count > 1:
                 if addressline.find("Defendant") > -1:
-                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1]:
+                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
                         address[2] = address[2] + ", " + (addresslines[current_line + 1])
 
             
@@ -130,7 +129,9 @@ def scrapeCalendar():
         address[2] = address[2] + " " + address[3]
         address.pop(3)
         address[2].rstrip(" ,")
-    headers = ['url', 'name', 'address', 'city state zip', 'case number', 'county']
+    for address in addresses:
+        address.pop(0)
+    headers = ['name', 'address', 'city state zip', 'case number', 'county']
     addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     print("Writing csv spreadsheet file")
