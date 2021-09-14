@@ -255,7 +255,7 @@ entry1=Entry(date_frame)
 # county options area
 options_frame = LabelFrame(root, text="Choose a County Option", padx=5, pady=5, relief=RIDGE)
 c_option = tk.StringVar(None, "1")
-option1 = Radiobutton(options_frame, text="Douglas and Lancaster Only", variable=c_option, value="1")
+option1 = Radiobutton(options_frame, text="Douglas, Lancaster and Sarpy Only", variable=c_option, value="1")
 option2 = Radiobutton(options_frame, text="All Nebraska Counties", variable=c_option, value="2")  
 
 #button to press
