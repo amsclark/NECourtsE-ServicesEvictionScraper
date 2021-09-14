@@ -23,11 +23,11 @@ def validate(date_text):
         raise ValueError("Incorrect Date format, should be mm/dd/yyyy")
         
 def scrapeCalendar():
-    #counties_list = ["Douglas", "Lancaster"]
+    #counties_list = ["Douglas", "Lancaster", "Sarpy"]
     if (c_option.get() == "2"):
         counties_list = ["Adams", "Antelope", "Arthur", "Banner", "Blaine", "Boone", "Box Butte", "Boyd", "Brown", "Buffalo", "Burt", "Butler", "Cass", "Cedar", "Chase", "Cherry", "Cheyenne", "Clay", "Colfax", "Cuming", "Custer", "Dakota", "Dawes", "Dawson", "Deuel", "Dixon", "Dodge", "Douglas", "Dundy", "Fillmore", "Franklin", "Frontier", "Furnas", "Gage", "Garden", "Garfield", "Gosper", "Grant", "Greeley", "Hall", "Hamilton", "Harlan", "Hayes", "Hitchcock", "Holt", "Hooker", "Howard", "Jefferson", "Johnson", "Kearney", "Keith", "Keya Paha", "Kimball", "Knox", "Lancaster", "Lincoln", "Logan", "Loup", "Madison", "McPherson", "Merrick", "Morrill", "Nance", "Nemaha", "Nuckolls", "Otoe", "Pawnee", "Perkins", "Phelps", "Pierce", "Platte", "Polk", "Red Willow", "Richardson", "Rock", "Saline", "Sarpy", "Saunders", "Scotts Bluff", "Seward", "Sheridan", "Sherman", "Sioux", "Stanton", "Thayer", "Thomas", "Thurston", "Valley", "Washington", "Wayne", "Webster", "Wheeler", "York"]
     if (c_option.get() == "1"):
-        counties_list = ["Douglas", "Lancaster"]
+        counties_list = ["Douglas", "Lancaster", "Sarpy"]
     print("Processing...")
     targetDate = entry1.get()
     username= user_entry.get()
