@@ -83,10 +83,12 @@ def scrapeCalendar():
     
     for address in addresses:
         print("Retrieving " + address[0])
-        docket_response = requests.get(address[0], auth=(username, password))
+        docket_response = requests.get(address[0], auth=(username, password)) 
         docket_soup = BeautifulSoup(docket_response.content, 'lxml')
         docket_blocks = docket_soup.find_all('pre')
+        print("Docket Party and Address Info" + docket_blocks[1].get_text())
         attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
+        print("Client Info Ends at Text Column #" + str(attorney_column_offset))
         addresslines = docket_blocks[1].get_text().splitlines()
         addresslines_no_attys = list()
         if attorney_column_offset > 0:
@@ -97,6 +99,8 @@ def scrapeCalendar():
         for addressline in addresslines:
             addresslines_trimmed.append(addressline.strip())
         addresslines = addresslines_trimmed
+        print("Extracted Client Info: \n")
+        print(addresslines)
         start_yet = 0
         defendant_count = 0
         current_line = -1
@@ -287,5 +291,3 @@ button1.grid(row=7, column=1, sticky="W", padx=10, pady=10)
 
 
 root.mainloop()
-
-
