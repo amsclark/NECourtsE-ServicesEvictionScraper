@@ -1,5 +1,6 @@
 # Created by Alexander Clark of Metatheria, LLC
 # Creative Commons CC0 v1.0 Universal Public Domain Dedication. No Rights Reserved
+# Version 0.3
 
 import tkinter as tk
 from tkinter import *
@@ -86,41 +87,49 @@ def scrapeCalendar():
         docket_response = requests.get(address[0], auth=(username, password)) 
         docket_soup = BeautifulSoup(docket_response.content, 'lxml')
         docket_blocks = docket_soup.find_all('pre')
-        print("Docket Party and Address Info" + docket_blocks[1].get_text())
-        attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
-        print("Client Info Ends at Text Column #" + str(attorney_column_offset))
-        addresslines = docket_blocks[1].get_text().splitlines()
-        addresslines_no_attys = list()
-        if attorney_column_offset > 0:
+        num_pre_blocks = len(docket_blocks)
+        if num_pre_blocks < 2:
+            print("Could not find docket party and address info in case at " + address[0])
+            address.append('could not retrieve')
+            address.append('could not retrieve')
+            address.append('could not retrieve')
+            address.append('could not retrieve')
+        else: 
+            print("Docket Party and Address Info" + docket_blocks[1].get_text())
+            attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
+            print("Client Info Ends at Text Column #" + str(attorney_column_offset))
+            addresslines = docket_blocks[1].get_text().splitlines()
+            addresslines_no_attys = list()
+            if attorney_column_offset > 0:
+                for addressline in addresslines:
+                    addresslines_no_attys.append(addressline[0:attorney_column_offset])
+            addresslines = addresslines_no_attys
+            addresslines_trimmed = list()
             for addressline in addresslines:
-                addresslines_no_attys.append(addressline[0:attorney_column_offset])
-        addresslines = addresslines_no_attys
-        addresslines_trimmed = list()
-        for addressline in addresslines:
-            addresslines_trimmed.append(addressline.strip())
-        addresslines = addresslines_trimmed
-        print("Extracted Client Info: \n")
-        print(addresslines)
-        start_yet = 0
-        defendant_count = 0
-        current_line = -1
-        for addressline in addresslines:
-            current_line = current_line + 1
-            if addressline.find("Limited Representation Attorney") > -1:
-                start_yet = 0
-                defendant_count = 0
-            if addressline.find(" owes ") > -1:
-                start_yet = 0
-                defendant_count = 0
-            if addressline.find("Defendant") > -1:
-                start_yet = 1
-                defendant_count = defendant_count + 1
-            if start_yet == 1 and defendant_count == 1:
-                address.append(addressline)
-            if start_yet == 1 and defendant_count > 1:
+                addresslines_trimmed.append(addressline.strip())
+            addresslines = addresslines_trimmed
+            print("Extracted Client Info: \n")
+            print(addresslines)
+            start_yet = 0
+            defendant_count = 0
+            current_line = -1
+            for addressline in addresslines:
+                current_line = current_line + 1
+                if addressline.find("Limited Representation Attorney") > -1:
+                    start_yet = 0
+                    defendant_count = 0
+                if addressline.find(" owes ") > -1:
+                    start_yet = 0
+                    defendant_count = 0
                 if addressline.find("Defendant") > -1:
-                    if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
-                        address[2] = address[2] + ", " + (addresslines[current_line + 1])
+                    start_yet = 1
+                    defendant_count = defendant_count + 1
+                if start_yet == 1 and defendant_count == 1:
+                    address.append(addressline)
+                if start_yet == 1 and defendant_count > 1:
+                    if addressline.find("Defendant") > -1:
+                        if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
+                            address[2] = address[2] + ", " + (addresslines[current_line + 1])
 
             
     for address in addresses:
