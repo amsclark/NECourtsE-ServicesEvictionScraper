@@ -1,6 +1,6 @@
 # Created by Alexander Clark of Metatheria, LLC
 # Creative Commons CC0 v1.0 Universal Public Domain Dedication. No Rights Reserved
-# Version 0.3
+# Version 0.4
 
 import tkinter as tk
 from tkinter import *
@@ -133,6 +133,18 @@ def scrapeCalendar():
 
             
     for address in addresses:
+        if (len(address) == 2):
+            address.insert(1, " ")
+            address.insert(2, " ")
+            address.insert(3, " ")
+            address.insert(4, " ")
+        if (len(address) == 3):
+            address.insert(2, " ")
+            address.insert(3, " ")
+            address.insert(4, " ")
+        if (len(address) == 4):
+            address.insert(3, " ")
+            address.insert(4, " ")
         if (len(address) == 5):
             address.insert(4, " ")
         address[5] = " ".join(address[5].split())
