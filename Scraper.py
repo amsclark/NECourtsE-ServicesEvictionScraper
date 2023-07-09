@@ -304,7 +304,8 @@ entry1.grid(row=1, column=0)
 
 options_frame.grid(row=0, column=2, rowspan=5, padx=10, pady=10)
 option1.grid(row=0, column=0, sticky="W")
-option2.grid(row=1, column=0, sticky="W")
+option3.grid(row=1, column=0, sticky="W")
+option2.grid(row=2, column=0, sticky="W")
 
 cred_frame.grid(row=0, column=3, rowspan=5, padx=10, pady=10)
 user_entry_label.grid(row=0, column=0, sticky="W")
