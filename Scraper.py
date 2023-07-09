@@ -30,7 +30,7 @@ def scrapeCalendar():
     if (c_option.get() == "1"):
         counties_list = ["Douglas", "Lancaster", "Sarpy"]
     if (c_option.get() == "3"):
-        counties.list = ["Douglas", "Lancaster", "Sarpy", "Hall", "Buffalo", "Dodge", "Scotts Bluff", "Madison", "Platte", "Lincoln"]
+        counties_list = ["Douglas", "Lancaster", "Sarpy", "Hall", "Buffalo", "Dodge", "Scotts Bluff", "Madison", "Platte", "Lincoln"]
     print("Processing...")
     targetDate = entry1.get()
     username= user_entry.get()
