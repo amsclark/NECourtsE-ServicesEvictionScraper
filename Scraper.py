@@ -29,6 +29,8 @@ def scrapeCalendar():
         counties_list = ["Adams", "Antelope", "Arthur", "Banner", "Blaine", "Boone", "Box Butte", "Boyd", "Brown", "Buffalo", "Burt", "Butler", "Cass", "Cedar", "Chase", "Cherry", "Cheyenne", "Clay", "Colfax", "Cuming", "Custer", "Dakota", "Dawes", "Dawson", "Deuel", "Dixon", "Dodge", "Douglas", "Dundy", "Fillmore", "Franklin", "Frontier", "Furnas", "Gage", "Garden", "Garfield", "Gosper", "Grant", "Greeley", "Hall", "Hamilton", "Harlan", "Hayes", "Hitchcock", "Holt", "Hooker", "Howard", "Jefferson", "Johnson", "Kearney", "Keith", "Keya Paha", "Kimball", "Knox", "Lancaster", "Lincoln", "Logan", "Loup", "Madison", "McPherson", "Merrick", "Morrill", "Nance", "Nemaha", "Nuckolls", "Otoe", "Pawnee", "Perkins", "Phelps", "Pierce", "Platte", "Polk", "Red Willow", "Richardson", "Rock", "Saline", "Sarpy", "Saunders", "Scotts Bluff", "Seward", "Sheridan", "Sherman", "Sioux", "Stanton", "Thayer", "Thomas", "Thurston", "Valley", "Washington", "Wayne", "Webster", "Wheeler", "York"]
     if (c_option.get() == "1"):
         counties_list = ["Douglas", "Lancaster", "Sarpy"]
+    if (c_option.get() == "3"):
+        counties.list = ["Douglas", "Lancaster", "Sarpy", "Hall", "Buffalo", "Dodge", "Scotts Bluff", "Madison", "Platte", "Lincoln"]
     print("Processing...")
     targetDate = entry1.get()
     username= user_entry.get()
@@ -281,7 +283,9 @@ entry1=Entry(date_frame)
 options_frame = LabelFrame(root, text="Choose a County Option", padx=5, pady=5, relief=RIDGE)
 c_option = tk.StringVar(None, "1")
 option1 = Radiobutton(options_frame, text="Douglas, Lancaster and Sarpy Only", variable=c_option, value="1")
+option3 = Radiobutton(options_frame, text="Top 10 Counties", variable=c_option, value="3")
 option2 = Radiobutton(options_frame, text="All Nebraska Counties", variable=c_option, value="2")  
+
 
 #button to press
 button1 = tk.Button(text="Scrape Justice", command=scrapeCalendar)
