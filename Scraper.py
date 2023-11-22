@@ -123,6 +123,9 @@ def scrapeCalendar():
                 if addressline.find(" owes ") > -1:
                     start_yet = 0
                     defendant_count = 0
+                if addressline.find("Alias is ") > -1:
+                    start_yet = 0
+                    #defendant_count = 0
                 if addressline.find("Defendant") > -1:
                     start_yet = 1
                     defendant_count = defendant_count + 1
@@ -158,6 +161,9 @@ def scrapeCalendar():
         address[2].rstrip(" ,")
     for address in addresses:
         address.pop(0)
+        if len(address) == 6:
+            if address[3] == "":
+                address.pop(3)
     headers = ['name', 'address', 'city state zip', 'case number', 'county']
     addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
