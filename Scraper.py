@@ -11,10 +11,15 @@ import requests
 from requests.auth import HTTPBasicAuth
 from bs4 import BeautifulSoup
 import csv
-import winsound
+import argparse
+if sys.platform == "win32":
+    import winsound
 
 
-
+# Add argument parsing
+parser = argparse.ArgumentParser()
+parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+args = parser.parse_args()
 
 
 def validate(date_text):
@@ -57,6 +62,11 @@ def scrapeCalendar():
           ('submitButton', 'Submit'),
         }
         response = requests.get('https://www.nebraska.gov/courts/calendar/index.cgi', params=params)
+        if args.debug:
+            print(f"URL: {response.url}")
+            print(f"Status Code: {response.status_code}")
+            print("HTML Content:")
+            print(response.text)
         soup = BeautifulSoup(response.content, 'lxml')
         rows = soup.find_all('tr')
         for row in rows:
@@ -87,6 +97,11 @@ def scrapeCalendar():
     for address in addresses:
         print("Retrieving " + address[0])
         docket_response = requests.get(address[0], auth=(username, password)) 
+        if args.debug:
+            print(f"URL: {docket_response.url}")
+            print(f"Status Code: {docket_response.status_code}")
+            print("HTML Content:")
+            print(docket_response.text)
         docket_soup = BeautifulSoup(docket_response.content, 'lxml')
         docket_blocks = docket_soup.find_all('pre')
         num_pre_blocks = len(docket_blocks)
@@ -171,7 +186,8 @@ def scrapeCalendar():
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerows(addresses)
-    winsound.Beep(2500,250)
+    if sys.platform == "win32":
+        winsound.Beep(2500,250)
     print("Done.")
 
     

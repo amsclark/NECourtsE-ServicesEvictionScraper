@@ -1,0 +1,38 @@
+# Python virtual environment
+bin/
+lib/
+lib64/
+include/
+pyvenv.cfg
+
+# VS Code settings
+.vscode/
+
+# OS files
+*.DS_Store
+*.swp
+*.swo
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Generated CSV files
+eviction_cases_for_*.csv
+
+# Screenshot
+screenshot.png
+
+# Log files
+*.log
+
+# Ignore Windows batch file if not needed
+run.bat
+
+# Ignore test output
+*.out
+
+# Ignore Jupyter notebooks if generated
+*.ipynb
