@@ -38,78 +38,157 @@ def validate(date_text):
     except ValueError:
         raise ValueError("Incorrect Date format, should be mm/dd/yyyy")
 
-def fetch_single_docket(address_url, username, password, index, total, debug=False):
+def fetch_single_docket(address_url, username, password, index, total, attempt=1, max_attempts=2, debug=False):
     """
-    Fetch a single docket page. Used for parallel processing.
-    Returns a list with docket information.
+    Fetch a single docket page. Thread-safe function for parallel execution.
+    Returns a list with the docket information or error information, plus retry flag.
+    Returns: (data_list, should_retry)
     """
-    try:
-        print(f"[Case {index}/{total}] Retrieving {address_url}")
-        docket_response = requests.get(address_url, auth=(username, password), timeout=30)
-        
-        if debug:
-            print(f"URL: {docket_response.url}")
-            print(f"Status Code: {docket_response.status_code}")
-        
-        address_info = [address_url]
-        docket_soup = BeautifulSoup(docket_response.content, 'lxml')
-        docket_blocks = docket_soup.find_all('pre')
-        num_pre_blocks = len(docket_blocks)
-        
-        if num_pre_blocks < 2:
-            print(f"  ⚠ Could not find docket info in case at {address_url}")
-            address_info.extend(['could not retrieve', 'could not retrieve', 'could not retrieve', 'could not retrieve'])
-        else: 
-            if debug:
-                print("Docket Party and Address Info" + docket_blocks[1].get_text())
-            
-            attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
-            if debug:
-                print("Client Info Ends at Text Column #" + str(attorney_column_offset))
-            
-            addresslines = docket_blocks[1].get_text().splitlines()
-            addresslines_no_attys = list()
-            if attorney_column_offset > 0:
-                for addressline in addresslines:
-                    addresslines_no_attys.append(addressline[0:attorney_column_offset])
-            addresslines = addresslines_no_attys
-            addresslines_trimmed = list()
-            for addressline in addresslines:
-                addresslines_trimmed.append(addressline.strip())
-            addresslines = addresslines_trimmed
-            
-            if debug:
-                print("Extracted Client Info: \n")
-                print(addresslines)
-            
-            start_yet = 0
-            defendant_count = 0
-            current_line = -1
-            for addressline in addresslines:
-                current_line = current_line + 1
-                if addressline.find("Limited Representation Attorney") > -1:
-                    start_yet = 0
-                    defendant_count = 0
-                if addressline.find(" owes ") > -1:
-                    start_yet = 0
-                    defendant_count = 0
-                if addressline.find("Alias is ") > -1:
-                    start_yet = 0
-                if addressline.find("Defendant") > -1:
-                    start_yet = 1
-                    defendant_count = defendant_count + 1
-                if start_yet == 1 and defendant_count == 1:
-                    address_info.append(addressline)
-                if start_yet == 1 and defendant_count > 1:
-                    if addressline.find("Defendant") > -1:
-                        if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
-                            address_info[2] = address_info[2] + ", " + (addresslines[current_line + 1])
-        
-        return address_info
+    percent = int((index / total) * 100)
+    attempt_str = f" (attempt {attempt}/{max_attempts})" if attempt > 1 else ""
+    print(f"[{percent:3d}%] Case {index}/{total}{attempt_str}")
     
+    try:
+        response = requests.get(address_url, auth=(username, password), timeout=60)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'lxml')
+        
+        # Extract defendant information - it's in <pre> tags, not tables
+        defendant_info_fields = ['error', 'error  ', 'error']
+        
+        # Look for "Defendant ACTIVE" in pre tags
+        pre_tags = soup.find_all('pre')
+        for pre in pre_tags:
+            text = pre.get_text()
+            if 'Defendant ACTIVE' in text or 'Defendant' in text:
+                # Split into lines and clean up
+                lines = [line.strip() for line in text.split('\n') if line.strip()]
+                
+                # Find the line with "Defendant"
+                for i, line in enumerate(lines):
+                    if 'Defendant' in line:
+                        # Next few lines should be: Name, Address, City/State/Zip
+                        if i + 3 < len(lines):
+                            name = lines[i + 1]  # Name is right after "Defendant ACTIVE"
+                            address_line1 = lines[i + 2]  # First address line
+                            
+                            # Check if we have an apartment/unit number or go straight to city/state/zip
+                            next_line = lines[i + 3]
+                            
+                            # If next line looks like city/state/zip (has state code), use it directly
+                            # Otherwise, it's probably an apartment number
+                            has_state = any(f' {state} ' in f' {next_line} ' or next_line.startswith(state) 
+                                          for state in ['NE', 'IA', 'KS', 'MO', 'SD', 'CO', 'WY'])
+                            
+                            if has_state:
+                                # No apartment line - next_line is city/state/zip
+                                address = address_line1
+                                city_state_zip = next_line
+                            else:
+                                # Apartment/unit on separate line
+                                if i + 4 < len(lines):
+                                    address = address_line1 + ' ' + next_line  # Combine address lines
+                                    city_state_zip = lines[i + 4]
+                                else:
+                                    address = address_line1
+                                    city_state_zip = next_line
+                            
+                            defendant_info_fields = [name, address, city_state_zip]
+                            break
+                
+                if defendant_info_fields != ['error', 'error  ', 'error']:
+                    break
+        
+        # If we didn't find defendant info, save HTML for debugging
+        if defendant_info_fields == ['error', 'error  ', 'error'] and debug:
+            case_id = address_url.split('case_id=')[1].split('&')[0] if 'case_id=' in address_url else 'unknown'
+            debug_file = f"debug_docket_{case_id}.html"
+            with open(debug_file, 'w') as f:
+                f.write(response.text)
+            print(f"      ⚠️  No defendant info found - saved to {debug_file}")
+        
+        return ([address_url] + defendant_info_fields, False)
+        
+    except requests.exceptions.Timeout:
+        should_retry = attempt < max_attempts
+        retry_msg = " - will retry later" if should_retry else " - max attempts reached"
+        print(f"      ❌ Timeout after 60 seconds{retry_msg}")
+        return ([address_url, 'error', 'error  ', 'error'], should_retry)
     except Exception as e:
-        print(f"  ❌ Error retrieving {address_url}: {e}")
-        return [address_url, 'error', 'error', 'error', 'error']
+        should_retry = attempt < max_attempts
+        retry_msg = " - will retry later" if should_retry else " - max attempts reached"
+        print(f"      ❌ Error: {e}{retry_msg}")
+        return ([address_url, 'error', 'error  ', 'error'], should_retry)
+
+
+def process_county_dockets(case_urls, county_name, username, password, debug=False):
+    """
+    Process all docket URLs for a specific county.
+    Returns list of address records.
+    """
+    if not case_urls:
+        return []
+    
+    unique_urls = list(set(case_urls))
+    
+    print(f"\n{'='*70}")
+    print(f"PROCESSING {county_name.upper()} DOCKETS")
+    print(f"{'='*70}")
+    print(f"📊 {len(unique_urls)} unique case(s) to retrieve")
+    print(f"⚡ Using up to 3 concurrent connections\n")
+    
+    # Track attempts for each URL
+    url_attempts = {url: 0 for url in unique_urls}
+    pending_urls = list(unique_urls)
+    addresses = []
+    
+    while pending_urls:
+        current_batch = pending_urls.copy()
+        pending_urls = []  # Reset for retry queue
+        
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit all URLs in current batch
+            future_to_url = {}
+            for url in current_batch:
+                url_attempts[url] += 1
+                idx = list(url_attempts.keys()).index(url) + 1
+                future = executor.submit(
+                    fetch_single_docket, 
+                    url, 
+                    username, 
+                    password, 
+                    idx, 
+                    len(url_attempts), 
+                    url_attempts[url],
+                    2,  # max_attempts
+                    debug
+                )
+                future_to_url[future] = url
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    data_list, should_retry = future.result()
+                    
+                    if should_retry:
+                        # Add to retry queue
+                        pending_urls.append(url)
+                    else:
+                        # Final result (success or max attempts reached)
+                        addresses.append(data_list)
+                except Exception as e:
+                    print(f"      ❌ Exception for {url}: {e}")
+                    addresses.append([url, 'error', 'error', 'error'])
+        
+        # If we have retries, add a small delay before next batch
+        if pending_urls:
+            retry_count = len(pending_urls)
+            print(f"\n⏳ Retrying {retry_count} case(s) after brief delay...\n")
+            time.sleep(2)  # Brief pause before retrying
+    
+    print(f"✓ {county_name} complete: {len(addresses)} docket(s) processed\n")
+    return addresses
 
 def load_credentials():
     """
@@ -365,14 +444,20 @@ def scrapeCalendar():
     addresses = list()
     address = list()
     
-    # PHASE 1: Fetch calendar pages for all counties
+    # PHASE 1 & 2: Fetch calendar and process dockets county-by-county
     print("\n" + "="*70)
-    print("PHASE 1: FETCHING CALENDAR PAGES (reCAPTCHA may appear)")
+    print("FETCHING CALENDARS AND PROCESSING DOCKETS")
+    print("="*70)
+    print("Note: Each county is processed independently (calendar + dockets)")
     print("="*70 + "\n")
     
+    all_addresses = []
+    
     for idx, county in enumerate(counties_list, 1):
-        print(f"\n[County {idx}/{len(counties_list)}] Getting case numbers for eviction cases")
-        print(f"(Restitution, Real Fed, FED or LLT) for {targetDate} from {county} county...")
+        print(f"\n{'='*70}")
+        print(f"COUNTY {idx}/{len(counties_list)}: {county.upper()}")
+        print(f"{'='*70}\n")
+        print(f"📅 Fetching calendar for {targetDate}...")
         root.update_idletasks()
         
         # Use Selenium to fetch the page and handle reCAPTCHA
@@ -382,65 +467,51 @@ def scrapeCalendar():
             print("HTML Content:")
             print(page_html)
         
+        # Parse calendar page and extract case URLs
         soup = BeautifulSoup(page_html, 'lxml')
         rows = soup.find_all('tr')
+        county_case_urls = []
+        
         for row in rows:
             if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text() or "FED" in row.get_text():
                 listrow = row.get_text().splitlines()
                 if ("CR" not in listrow[6]):
-                    listrow.append(county)
-                    print("Adding " + listrow[7] + " county case number " + listrow[6] + " to the list to scrape.")
+                    case_number = listrow[6]
+                    print(f"  Found case: {case_number}")
+                    
+                    # Build case URL
                     case_url = 'https://www.nebraska.gov/justice/case.cgi?search=1&from_case_search=1&court_type=C&county_num='
-                    case_url += county_numbers_dict.get(listrow[7])
+                    case_url += county_numbers_dict.get(county)
                     case_url += '&case_type=CI&case_year='
-                    case_url += listrow[6][2:4]
+                    case_url += case_number[2:4]
                     case_url += '&case_id='
-                    case_url += listrow[6][4:]
+                    case_url += case_number[4:]
                     case_url += '&client_data=&search=Search+Now'
-                    listrow.append(case_url)
-                    restitution_cases.append(listrow)
-    
-    
-    #create new list of lists to store deduplicated URLs for cases and the docket info we are going to get back.
-    print("\n" + "="*70)
-    print("PHASE 2: PROCESSING CASE DOCKETS (PARALLEL)")
-    print("="*70)
-    print(f"✓ Calendar pages complete! Found {len(restitution_cases)} cases.")
-    print("  Deduplicating and retrieving individual case details...\n")
-    
-    # Deduplicate case URLs
-    unique_urls = []
-    for restitution_case in restitution_cases:
-        case_url = restitution_case[8]
-        if case_url not in unique_urls:
-            unique_urls.append(case_url)
-    
-    print(f"📊 Processing {len(unique_urls)} unique case(s) using parallel requests...")
-    print(f"⚡ Using up to 5 concurrent connections for faster retrieval\n")
-    
-    # Fetch dockets in parallel using ThreadPoolExecutor
-    addresses = []
-    with ThreadPoolExecutor(max_workers=5) as executor:
-        # Submit all docket fetches
-        future_to_url = {
-            executor.submit(fetch_single_docket, url, username, password, idx, len(unique_urls), args.debug): url 
-            for idx, url in enumerate(unique_urls, 1)
-        }
+                    county_case_urls.append(case_url)
         
-        # Collect results as they complete
-        for future in as_completed(future_to_url):
-            url = future_to_url[future]
-            try:
-                result = future.result()
-                addresses.append(result)
-            except Exception as e:
-                print(f"  ❌ Exception for {url}: {e}")
-                addresses.append([url, 'error', 'error', 'error', 'error'])
+        print(f"✓ Found {len(county_case_urls)} case(s) in {county} county")
+        
+        # Process this county's dockets immediately
+        if county_case_urls:
+            county_addresses = process_county_dockets(county_case_urls, county, username, password, args.debug)
+            # Add county name to each record
+            for address_record in county_addresses:
+                address_record.append(county)
+            all_addresses.extend(county_addresses)
+        else:
+            print(f"  No cases to process for {county}\n")
     
-    print(f"\n✓ All {len(addresses)} docket(s) retrieved!")
-
-            
-    for address in addresses:
+    print("\n" + "="*70)
+    print("ALL COUNTIES COMPLETE")
+    print("="*70)
+    print(f"✓ Total records retrieved: {len(all_addresses)}\n")
+    
+    # Format address records for CSV
+    print("="*70)
+    print("FINALIZING RESULTS")
+    print("="*70)
+    
+    for address in all_addresses:
         if (len(address) == 2):
             address.insert(1, " ")
             address.insert(2, " ")
@@ -457,30 +528,27 @@ def scrapeCalendar():
             address.insert(4, " ")
         address[5] = " ".join(address[5].split())
         address.append(address[0][120:122] + "CI" + address[0][131:138])
-        address.append(list(county_numbers_dict.keys())[list(county_numbers_dict.values()).index(address[0][94:96])])
+        # County is already appended, so we don't need to look it up
         address.pop(1)
         address[2] = address[2] + " " + address[3]
         address.pop(3)
         address[2].rstrip(" ,")
-    for address in addresses:
+    for address in all_addresses:
         address.pop(0)
         if len(address) == 6:
             if address[3] == "":
                 address.pop(3)
     headers = ['name', 'address', 'city state zip', 'case number', 'county']
-    addresses.insert(0, headers)
+    all_addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     
-    print("\n" + "="*70)
-    print("FINALIZING RESULTS")
-    print("="*70)
     print(f"📝 Writing CSV spreadsheet file: {filename}")
     
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerows(addresses)
+        writer.writerows(all_addresses)
     
-    print(f"✓ Successfully wrote {len(addresses)-1} record(s) to {filename}")
+    print(f"✓ Successfully wrote {len(all_addresses)-1} record(s) to {filename}")
     
     if sys.platform == "win32":
         winsound.Beep(2500,250)
