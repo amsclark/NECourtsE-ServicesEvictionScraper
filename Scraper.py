@@ -5,6 +5,7 @@
 import tkinter as tk
 from tkinter import *
 import sys
+import os
 import datetime
 import urllib
 import requests
@@ -12,6 +13,15 @@ from requests.auth import HTTPBasicAuth
 from bs4 import BeautifulSoup
 import csv
 import argparse
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 if sys.platform == "win32":
     import winsound
 
@@ -27,7 +37,302 @@ def validate(date_text):
         datetime.datetime.strptime(date_text, '%m/%d/%Y')
     except ValueError:
         raise ValueError("Incorrect Date format, should be mm/dd/yyyy")
+
+def fetch_single_docket(address_url, username, password, index, total, debug=False):
+    """
+    Fetch a single docket page. Used for parallel processing.
+    Returns a list with docket information.
+    """
+    try:
+        print(f"[Case {index}/{total}] Retrieving {address_url}")
+        docket_response = requests.get(address_url, auth=(username, password), timeout=30)
         
+        if debug:
+            print(f"URL: {docket_response.url}")
+            print(f"Status Code: {docket_response.status_code}")
+        
+        address_info = [address_url]
+        docket_soup = BeautifulSoup(docket_response.content, 'lxml')
+        docket_blocks = docket_soup.find_all('pre')
+        num_pre_blocks = len(docket_blocks)
+        
+        if num_pre_blocks < 2:
+            print(f"  ⚠ Could not find docket info in case at {address_url}")
+            address_info.extend(['could not retrieve', 'could not retrieve', 'could not retrieve', 'could not retrieve'])
+        else: 
+            if debug:
+                print("Docket Party and Address Info" + docket_blocks[1].get_text())
+            
+            attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
+            if debug:
+                print("Client Info Ends at Text Column #" + str(attorney_column_offset))
+            
+            addresslines = docket_blocks[1].get_text().splitlines()
+            addresslines_no_attys = list()
+            if attorney_column_offset > 0:
+                for addressline in addresslines:
+                    addresslines_no_attys.append(addressline[0:attorney_column_offset])
+            addresslines = addresslines_no_attys
+            addresslines_trimmed = list()
+            for addressline in addresslines:
+                addresslines_trimmed.append(addressline.strip())
+            addresslines = addresslines_trimmed
+            
+            if debug:
+                print("Extracted Client Info: \n")
+                print(addresslines)
+            
+            start_yet = 0
+            defendant_count = 0
+            current_line = -1
+            for addressline in addresslines:
+                current_line = current_line + 1
+                if addressline.find("Limited Representation Attorney") > -1:
+                    start_yet = 0
+                    defendant_count = 0
+                if addressline.find(" owes ") > -1:
+                    start_yet = 0
+                    defendant_count = 0
+                if addressline.find("Alias is ") > -1:
+                    start_yet = 0
+                if addressline.find("Defendant") > -1:
+                    start_yet = 1
+                    defendant_count = defendant_count + 1
+                if start_yet == 1 and defendant_count == 1:
+                    address_info.append(addressline)
+                if start_yet == 1 and defendant_count > 1:
+                    if addressline.find("Defendant") > -1:
+                        if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
+                            address_info[2] = address_info[2] + ", " + (addresslines[current_line + 1])
+        
+        return address_info
+    
+    except Exception as e:
+        print(f"  ❌ Error retrieving {address_url}: {e}")
+        return [address_url, 'error', 'error', 'error', 'error']
+
+def load_credentials():
+    """
+    Load credentials from .creds file if it exists.
+    File format (plain text, two lines):
+    username
+    password
+    
+    Returns tuple: (username, password) or (None, None) if file doesn't exist
+    """
+    creds_file = ".creds"
+    try:
+        if os.path.exists(creds_file):
+            with open(creds_file, 'r') as f:
+                lines = f.read().strip().split('\n')
+                if len(lines) >= 2:
+                    username = lines[0].strip()
+                    password = lines[1].strip()
+                    print(f"✓ Loaded credentials from {creds_file}")
+                    return (username, password)
+                else:
+                    print(f"⚠ {creds_file} exists but doesn't have 2 lines")
+                    return (None, None)
+        else:
+            return (None, None)
+    except Exception as e:
+        print(f"⚠ Error reading {creds_file}: {e}")
+        return (None, None)
+
+def fetch_calendar_with_selenium(county, target_date):
+    """
+    Use Selenium to fetch the calendar page, allowing user to solve reCAPTCHA if needed.
+    Returns the page HTML after successful submission.
+    """
+    print(f"\n{'='*60}")
+    print(f"Opening browser for {county} county...")
+    print(f"{'='*60}")
+    print("⏳ If reCAPTCHA appears, you have 60 seconds to complete it.")
+    print("📌 The scraper will automatically continue once the page loads.")
+    print("🔄 You get 3 attempts if the CAPTCHA fails.")
+    
+    # Set up Chrome options
+    chrome_options = Options()
+    # Don't use headless mode so user can see and interact with reCAPTCHA
+    # chrome_options.add_argument('--headless')
+    chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    # Initialize the driver
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    
+    try:
+        # Navigate to the calendar page
+        url = 'https://www.nebraska.gov/courts/calendar/index.cgi'
+        driver.get(url)
+        
+        # Wait for page to load
+        time.sleep(2)
+        
+        # Fill in the form using JavaScript to avoid overlay issues (reCAPTCHA iframe can block clicks)
+        # Select County Court radio button
+        court_radio = driver.find_element(By.ID, "courtC")
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", court_radio)
+        time.sleep(0.3)
+        if not court_radio.is_selected():
+            driver.execute_script("arguments[0].click();", court_radio)
+        
+        # Select the county from dropdown
+        county_dropdown = driver.find_element(By.ID, "countyC")
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", county_dropdown)
+        time.sleep(0.3)
+        # Set the value and trigger change event to ensure it registers
+        driver.execute_script(f"""
+            arguments[0].value = '{county}';
+            arguments[0].dispatchEvent(new Event('change', {{ bubbles: true }}));
+        """, county_dropdown)
+        
+        # Verify county was selected
+        selected_county = county_dropdown.get_attribute("value")
+        print(f"📍 County selected: {selected_county}")
+        
+        # Select "Search By Date" radio button
+        date_radio = driver.find_element(By.ID, "dateRadio")
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", date_radio)
+        time.sleep(0.3)
+        if not date_radio.is_selected():
+            driver.execute_script("arguments[0].click();", date_radio)
+        
+        # Small delay to ensure radio selection is processed
+        time.sleep(0.5)
+        
+        # Enter the date - use JavaScript to set value directly to avoid datepicker issues
+        search_field = driver.find_element(By.ID, "searchField")
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", search_field)
+        time.sleep(0.3)
+        driver.execute_script("arguments[0].value = '';", search_field)  # Clear first
+        driver.execute_script(f"arguments[0].value = '{target_date}';", search_field)
+        
+        # Verify the date was entered
+        entered_value = search_field.get_attribute("value")
+        print(f"📅 Date field value: {entered_value}")
+        
+        # Scroll to the submit button to make it visible
+        submit_button = driver.find_element(By.ID, "submitButton")
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", submit_button)
+        time.sleep(0.5)
+        
+        # Display form summary and give user a moment to verify
+        print("\n" + "="*60)
+        print("📋 FORM READY - PLEASE VERIFY")
+        print("="*60)
+        print(f"✓ County: {selected_county}")
+        print(f"✓ Date: {entered_value}")
+        print("\n⏱️  Auto-submitting in 3 seconds...")
+        print("   (You can manually click Search if you see any issues)")
+        print("="*60 + "\n")
+        
+        # Give user 3 seconds to review before auto-clicking
+        time.sleep(3)
+        
+        # Auto-click the submit button
+        print("🔘 Clicking Search button...")
+        driver.execute_script("arguments[0].click();", submit_button)
+        
+        print("\n⏳ Waiting for reCAPTCHA...")
+        print("👉 Complete the reCAPTCHA challenge if it appears")
+        print("👉 The scraper will automatically continue after you pass\n")
+        
+        # Wait for navigation to complete after user clicks submit and completes reCAPTCHA
+        # We'll wait for either results table or error message, with retry logic
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Wait up to 120 seconds for user to click submit and complete reCAPTCHA
+                print(f"⏳ Waiting for you to submit and complete reCAPTCHA (attempt {retry_count + 1}/{max_retries})...")
+                
+                # Wait for page to change after submission
+                initial_url = driver.current_url
+                
+                # First wait for the form to be submitted (URL changes or page content changes)
+                WebDriverWait(driver, 120).until(
+                    lambda d: d.current_url != initial_url or 
+                             "submitted=Submit" in d.current_url or
+                             len(d.find_elements(By.CSS_SELECTOR, "table tbody tr")) > 1
+                )
+                
+                # Give the page a moment to fully load
+                time.sleep(2)
+                
+                # Give the page a moment to fully load
+                time.sleep(2)
+                
+                # Check if we have results or need to retry
+                current_url = driver.current_url
+                page_source = driver.page_source
+                
+                # Check for reCAPTCHA validation failure message
+                if "Recaptcha Validation failed" in page_source or "reCAPTCHA validation failed" in page_source:
+                    print("\n❌ reCAPTCHA validation failed!")
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        print(f"⚠  Please try again. Attempt {retry_count + 1}/{max_retries}")
+                        print("👉 The form is still showing - click the 'Search' button again")
+                        print("👉 Make sure to check the 'I'm not a robot' box and complete any challenges\n")
+                        time.sleep(3)
+                    continue
+                
+                # Check if we successfully got results
+                soup = BeautifulSoup(page_source, 'lxml')
+                rows = soup.find_all('tr')
+                
+                # Check if "No results found" or similar message
+                if "No results" in page_source or "no results" in page_source or "No Results" in page_source:
+                    print("ℹ️  No cases found for this date/county")
+                    return page_source
+                
+                # Look for data rows
+                has_data = any("Restitution" in row.get_text() or "Real Fed" in row.get_text() 
+                               or "LLT" in row.get_text() or "FED" in row.get_text() 
+                               for row in rows)
+                
+                if has_data:
+                    print("✓ Successfully loaded calendar page with case data!")
+                    return page_source
+                
+                # If we have a table with multiple rows (even if no eviction cases)
+                if len(rows) > 5:
+                    print("✓ Successfully loaded calendar page!")
+                    return page_source
+                
+                # If we're still here and on a results page (not the form), accept it
+                if "submitButton" not in page_source:
+                    print("✓ Results page loaded (may be empty)")
+                    return page_source
+                
+                # Still on form page but no error message - might have timed out
+                print("⚠ Still on search form. Did you click Search and complete reCAPTCHA?")
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"   Attempt {retry_count + 1}/{max_retries} - please try again\n")
+                    time.sleep(2)
+                    
+            except Exception as e:
+                print(f"Error during wait: {e}")
+                retry_count += 1
+                if retry_count < max_retries:
+                    print(f"Retrying... ({retry_count}/{max_retries})")
+                    time.sleep(2)
+        
+        # If we exhausted retries, return what we have
+        print("⚠ Max retries reached. Returning current page content.")
+        return driver.page_source
+        
+    finally:
+        # Close the browser
+        time.sleep(2)  # Give user a moment to see the results
+        driver.quit()
+        print("Browser closed.")
+
+
 def scrapeCalendar():
     #counties_list = ["Douglas", "Lancaster", "Sarpy"]
     if (c_option.get() == "2"):
@@ -36,7 +341,17 @@ def scrapeCalendar():
         counties_list = ["Douglas", "Lancaster", "Sarpy"]
     if (c_option.get() == "3"):
         counties_list = ["Douglas", "Lancaster", "Sarpy", "Hall", "Buffalo", "Dodge", "Scotts Bluff", "Madison", "Platte", "Lincoln"]
-    print("Processing...")
+    
+    print("\n" + "="*70)
+    print("STARTING SCRAPER")
+    print("="*70)
+    print(f"📅 Target Date: {entry1.get()}")
+    print(f"📍 Counties to Process: {len(counties_list)}")
+    print(f"🔍 Counties: {', '.join(counties_list)}")
+    print("="*70)
+    print("\n⚠️  IMPORTANT: You must be present to solve reCAPTCHA challenges!")
+    print("    A browser window will open for each county.\n")
+    
     targetDate = entry1.get()
     username= user_entry.get()
     password= pass_entry.get()
@@ -49,25 +364,25 @@ def scrapeCalendar():
     restitution_cases = list()
     addresses = list()
     address = list()
-    for county in counties_list:
-        print("Getting case numbers for eviction cases (Restitution, Real Fed, FED or LLT is in description) for " + targetDate + " from the calendar for " + county + " county...")
+    
+    # PHASE 1: Fetch calendar pages for all counties
+    print("\n" + "="*70)
+    print("PHASE 1: FETCHING CALENDAR PAGES (reCAPTCHA may appear)")
+    print("="*70 + "\n")
+    
+    for idx, county in enumerate(counties_list, 1):
+        print(f"\n[County {idx}/{len(counties_list)}] Getting case numbers for eviction cases")
+        print(f"(Restitution, Real Fed, FED or LLT) for {targetDate} from {county} county...")
         root.update_idletasks()
-        #label1 = tk.Label(root, text="Getting case numbers from " + county + " county.")
-        params = {
-          ('court', 'C'),
-          ('countyC', county),
-          ('countyD', ''),
-          ('selectRadio', 'date'),
-          ('searchField', targetDate),
-          ('submitButton', 'Submit'),
-        }
-        response = requests.get('https://www.nebraska.gov/courts/calendar/index.cgi', params=params)
+        
+        # Use Selenium to fetch the page and handle reCAPTCHA
+        page_html = fetch_calendar_with_selenium(county, targetDate)
+        
         if args.debug:
-            print(f"URL: {response.url}")
-            print(f"Status Code: {response.status_code}")
             print("HTML Content:")
-            print(response.text)
-        soup = BeautifulSoup(response.content, 'lxml')
+            print(page_html)
+        
+        soup = BeautifulSoup(page_html, 'lxml')
         rows = soup.find_all('tr')
         for row in rows:
             if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text() or "FED" in row.get_text():
@@ -87,69 +402,42 @@ def scrapeCalendar():
     
     
     #create new list of lists to store deduplicated URLs for cases and the docket info we are going to get back.
-    print("Deduplicating list...")
+    print("\n" + "="*70)
+    print("PHASE 2: PROCESSING CASE DOCKETS (PARALLEL)")
+    print("="*70)
+    print(f"✓ Calendar pages complete! Found {len(restitution_cases)} cases.")
+    print("  Deduplicating and retrieving individual case details...\n")
+    
+    # Deduplicate case URLs
+    unique_urls = []
     for restitution_case in restitution_cases:
-        address = [restitution_case[8]]
-        if address not in addresses:
-            addresses.append(address)
+        case_url = restitution_case[8]
+        if case_url not in unique_urls:
+            unique_urls.append(case_url)
     
+    print(f"📊 Processing {len(unique_urls)} unique case(s) using parallel requests...")
+    print(f"⚡ Using up to 5 concurrent connections for faster retrieval\n")
     
-    for address in addresses:
-        print("Retrieving " + address[0])
-        docket_response = requests.get(address[0], auth=(username, password)) 
-        if args.debug:
-            print(f"URL: {docket_response.url}")
-            print(f"Status Code: {docket_response.status_code}")
-            print("HTML Content:")
-            print(docket_response.text)
-        docket_soup = BeautifulSoup(docket_response.content, 'lxml')
-        docket_blocks = docket_soup.find_all('pre')
-        num_pre_blocks = len(docket_blocks)
-        if num_pre_blocks < 2:
-            print("Could not find docket party and address info in case at " + address[0])
-            address.append('could not retrieve')
-            address.append('could not retrieve')
-            address.append('could not retrieve')
-            address.append('could not retrieve')
-        else: 
-            print("Docket Party and Address Info" + docket_blocks[1].get_text())
-            attorney_column_offset = docket_blocks[1].get_text().find("Attorney")
-            print("Client Info Ends at Text Column #" + str(attorney_column_offset))
-            addresslines = docket_blocks[1].get_text().splitlines()
-            addresslines_no_attys = list()
-            if attorney_column_offset > 0:
-                for addressline in addresslines:
-                    addresslines_no_attys.append(addressline[0:attorney_column_offset])
-            addresslines = addresslines_no_attys
-            addresslines_trimmed = list()
-            for addressline in addresslines:
-                addresslines_trimmed.append(addressline.strip())
-            addresslines = addresslines_trimmed
-            print("Extracted Client Info: \n")
-            print(addresslines)
-            start_yet = 0
-            defendant_count = 0
-            current_line = -1
-            for addressline in addresslines:
-                current_line = current_line + 1
-                if addressline.find("Limited Representation Attorney") > -1:
-                    start_yet = 0
-                    defendant_count = 0
-                if addressline.find(" owes ") > -1:
-                    start_yet = 0
-                    defendant_count = 0
-                if addressline.find("Alias is ") > -1:
-                    start_yet = 0
-                    #defendant_count = 0
-                if addressline.find("Defendant") > -1:
-                    start_yet = 1
-                    defendant_count = defendant_count + 1
-                if start_yet == 1 and defendant_count == 1:
-                    address.append(addressline)
-                if start_yet == 1 and defendant_count > 1:
-                    if addressline.find("Defendant") > -1:
-                        if "ccupants" not in addresslines[current_line + 1] and "CCUPANTS" not in addresslines[current_line + 1] and "ll other" not in addresslines[current_line + 1] and "LL OTHER" not in addresslines[current_line + 1] and "ll Other" not in addresslines[current_line + 1] and "John Doe" not in addresslines[current_line + 1] and "Jane Doe" not in addresslines[current_line + 1] and "Real Name Unknown" not in addresslines[current_line + 1]:
-                            address[2] = address[2] + ", " + (addresslines[current_line + 1])
+    # Fetch dockets in parallel using ThreadPoolExecutor
+    addresses = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        # Submit all docket fetches
+        future_to_url = {
+            executor.submit(fetch_single_docket, url, username, password, idx, len(unique_urls), args.debug): url 
+            for idx, url in enumerate(unique_urls, 1)
+        }
+        
+        # Collect results as they complete
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                result = future.result()
+                addresses.append(result)
+            except Exception as e:
+                print(f"  ❌ Exception for {url}: {e}")
+                addresses.append([url, 'error', 'error', 'error', 'error'])
+    
+    print(f"\n✓ All {len(addresses)} docket(s) retrieved!")
 
             
     for address in addresses:
@@ -182,13 +470,24 @@ def scrapeCalendar():
     headers = ['name', 'address', 'city state zip', 'case number', 'county']
     addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
-    print("Writing csv spreadsheet file")
+    
+    print("\n" + "="*70)
+    print("FINALIZING RESULTS")
+    print("="*70)
+    print(f"📝 Writing CSV spreadsheet file: {filename}")
+    
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerows(addresses)
+    
+    print(f"✓ Successfully wrote {len(addresses)-1} record(s) to {filename}")
+    
     if sys.platform == "win32":
         winsound.Beep(2500,250)
-    print("Done.")
+    
+    print("\n" + "="*70)
+    print("✓ SCRAPING COMPLETE!")
+    print("="*70 + "\n")
 
     
 
@@ -294,7 +593,8 @@ county_numbers_dict = {"Adams" : "14",
 root = tk.Tk()
 root.title("Nebraska Courts E-Services Scraper")
 
-
+# Load credentials from .creds file if available
+saved_username, saved_password = load_credentials()
 
 # date options area
 date_frame = LabelFrame(root, text="Target Date", padx=5, pady=5, relief=RIDGE)
@@ -319,6 +619,11 @@ user_entry=Entry(cred_frame)
 pass_entry_label = Label(cred_frame, text="Password")
 pass_entry=Entry(cred_frame)
 pass_entry.config(show="*")
+
+# Pre-populate credentials if loaded from .creds file
+if saved_username and saved_password:
+    user_entry.insert(0, saved_username)
+    pass_entry.insert(0, saved_password)
 
 date_frame.grid(row=0, column=1, rowspan=5, padx=10, pady=10)
 label1.grid(row=0, column=0)

@@ -22,6 +22,9 @@ __pycache__/
 # Generated CSV files
 eviction_cases_for_*.csv
 
+# Credentials file (contains username and password)
+.creds
+
 # Screenshot
 screenshot.png
 
