@@ -492,12 +492,12 @@ def scrapeCalendar():
     print("\n" + "="*70)
     print("PARALLEL PROCESSING: CALENDARS + DOCKETS")
     print("="*70)
-    print("📌 Strategy: Fetch calendars in parallel (3 browsers)")
+    print("📌 Strategy: Fetch calendars in parallel (6 browsers)")
     print("📌          Process dockets while next calendar loads")
     print("="*70 + "\n")
     
     all_addresses = []
-    max_parallel_browsers = 3  # User will need to solve 3 CAPTCHAs simultaneously
+    max_parallel_browsers = 6  # High-performance mode - 6 simultaneous CAPTCHAs!
     
     # Use ThreadPoolExecutor to fetch calendars in parallel
     with ThreadPoolExecutor(max_workers=max_parallel_browsers) as calendar_executor:
