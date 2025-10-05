@@ -135,7 +135,7 @@ def process_county_dockets(case_urls, county_name, username, password, debug=Fal
     print(f"PROCESSING {county_name.upper()} DOCKETS")
     print(f"{'='*70}")
     print(f"📊 {len(unique_urls)} unique case(s) to retrieve")
-    print(f"⚡ Using up to 3 concurrent connections\n")
+    print(f"⚡ Using up to 5 concurrent connections\n")
     
     # Track attempts for each URL
     url_attempts = {url: 0 for url in unique_urls}
@@ -146,7 +146,7 @@ def process_county_dockets(case_urls, county_name, username, password, debug=Fal
         current_batch = pending_urls.copy()
         pending_urls = []  # Reset for retry queue
         
-        with ThreadPoolExecutor(max_workers=3) as executor:
+        with ThreadPoolExecutor(max_workers=5) as executor:
             # Submit all URLs in current batch
             future_to_url = {}
             for url in current_batch:
@@ -189,6 +189,50 @@ def process_county_dockets(case_urls, county_name, username, password, debug=Fal
     
     print(f"✓ {county_name} complete: {len(addresses)} docket(s) processed\n")
     return addresses
+
+
+def fetch_county_calendar(county, target_date, county_index, total_counties, debug=False):
+    """
+    Fetch calendar for a single county. Can be run in parallel.
+    Returns: (county, list_of_case_urls)
+    """
+    print(f"\n{'='*70}")
+    print(f"COUNTY {county_index}/{total_counties}: {county.upper()}")
+    print(f"{'='*70}\n")
+    print(f"📅 Fetching calendar for {target_date}...")
+    
+    # Use Selenium to fetch the page and handle reCAPTCHA
+    page_html = fetch_calendar_with_selenium(county, target_date)
+    
+    if debug:
+        print("HTML Content:")
+        print(page_html)
+    
+    # Parse calendar page and extract case URLs
+    soup = BeautifulSoup(page_html, 'lxml')
+    rows = soup.find_all('tr')
+    county_case_urls = []
+    
+    for row in rows:
+        if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text() or "FED" in row.get_text():
+            listrow = row.get_text().splitlines()
+            if ("CR" not in listrow[6]):
+                case_number = listrow[6]
+                print(f"  Found case: {case_number}")
+                
+                # Build case URL
+                case_url = 'https://www.nebraska.gov/justice/case.cgi?search=1&from_case_search=1&court_type=C&county_num='
+                case_url += county_numbers_dict.get(county)
+                case_url += '&case_type=CI&case_year='
+                case_url += case_number[2:4]
+                case_url += '&case_id='
+                case_url += case_number[4:]
+                case_url += '&client_data=&search=Search+Now'
+                county_case_urls.append(case_url)
+    
+    print(f"✓ Found {len(county_case_urls)} case(s) in {county} county")
+    
+    return (county, county_case_urls)
 
 def load_credentials():
     """
@@ -444,62 +488,59 @@ def scrapeCalendar():
     addresses = list()
     address = list()
     
-    # PHASE 1 & 2: Fetch calendar and process dockets county-by-county
+    # PARALLEL CALENDAR FETCHING WITH INTERLEAVED DOCKET PROCESSING
     print("\n" + "="*70)
-    print("FETCHING CALENDARS AND PROCESSING DOCKETS")
+    print("PARALLEL PROCESSING: CALENDARS + DOCKETS")
     print("="*70)
-    print("Note: Each county is processed independently (calendar + dockets)")
+    print("📌 Strategy: Fetch calendars in parallel (3 browsers)")
+    print("📌          Process dockets while next calendar loads")
     print("="*70 + "\n")
     
     all_addresses = []
+    max_parallel_browsers = 3  # User will need to solve 3 CAPTCHAs simultaneously
     
-    for idx, county in enumerate(counties_list, 1):
-        print(f"\n{'='*70}")
-        print(f"COUNTY {idx}/{len(counties_list)}: {county.upper()}")
-        print(f"{'='*70}\n")
-        print(f"📅 Fetching calendar for {targetDate}...")
-        root.update_idletasks()
+    # Use ThreadPoolExecutor to fetch calendars in parallel
+    with ThreadPoolExecutor(max_workers=max_parallel_browsers) as calendar_executor:
+        # Submit calendar fetches
+        calendar_futures = {}
+        for idx, county in enumerate(counties_list, 1):
+            root.update_idletasks()
+            future = calendar_executor.submit(
+                fetch_county_calendar,
+                county,
+                targetDate,
+                idx,
+                len(counties_list),
+                args.debug
+            )
+            calendar_futures[future] = county
         
-        # Use Selenium to fetch the page and handle reCAPTCHA
-        page_html = fetch_calendar_with_selenium(county, targetDate)
-        
-        if args.debug:
-            print("HTML Content:")
-            print(page_html)
-        
-        # Parse calendar page and extract case URLs
-        soup = BeautifulSoup(page_html, 'lxml')
-        rows = soup.find_all('tr')
-        county_case_urls = []
-        
-        for row in rows:
-            if "Restitution" in row.get_text() or "Real Fed" in row.get_text() or "LLT" in row.get_text() or "FED" in row.get_text():
-                listrow = row.get_text().splitlines()
-                if ("CR" not in listrow[6]):
-                    case_number = listrow[6]
-                    print(f"  Found case: {case_number}")
+        # Process results as they complete (interleaved with docket fetching)
+        for future in as_completed(calendar_futures):
+            county = calendar_futures[future]
+            try:
+                county_name, county_case_urls = future.result()
+                
+                # Immediately process this county's dockets while other calendars are still loading
+                if county_case_urls:
+                    county_addresses = process_county_dockets(
+                        county_case_urls,
+                        county_name,
+                        username,
+                        password,
+                        args.debug
+                    )
+                    # Add county name to each record
+                    for address_record in county_addresses:
+                        address_record.append(county_name)
+                    all_addresses.extend(county_addresses)
+                else:
+                    print(f"  No cases to process for {county_name}\n")
                     
-                    # Build case URL
-                    case_url = 'https://www.nebraska.gov/justice/case.cgi?search=1&from_case_search=1&court_type=C&county_num='
-                    case_url += county_numbers_dict.get(county)
-                    case_url += '&case_type=CI&case_year='
-                    case_url += case_number[2:4]
-                    case_url += '&case_id='
-                    case_url += case_number[4:]
-                    case_url += '&client_data=&search=Search+Now'
-                    county_case_urls.append(case_url)
-        
-        print(f"✓ Found {len(county_case_urls)} case(s) in {county} county")
-        
-        # Process this county's dockets immediately
-        if county_case_urls:
-            county_addresses = process_county_dockets(county_case_urls, county, username, password, args.debug)
-            # Add county name to each record
-            for address_record in county_addresses:
-                address_record.append(county)
-            all_addresses.extend(county_addresses)
-        else:
-            print(f"  No cases to process for {county}\n")
+            except Exception as e:
+                print(f"❌ Error processing {county}: {e}")
+                import traceback
+                traceback.print_exc()
     
     print("\n" + "="*70)
     print("ALL COUNTIES COMPLETE")
