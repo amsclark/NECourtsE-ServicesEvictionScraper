@@ -42,22 +42,150 @@ class ProgressTracker:
         self.total_cases = 0
         self.completed_cases = 0
         self.start_time = None
+        self.counties_list = []
         
     def add_county(self, county, status="⏳ Waiting"):
         self.counties[county] = {
             'status': status,
             'cases_found': 0,
             'cases_completed': 0,
-            'phase': 'Calendar'
+            'phase': 'Waiting'
         }
+        if county not in self.counties_list:
+            self.counties_list.append(county)
     
     def update_county(self, county, **kwargs):
         if county in self.counties:
             self.counties[county].update(kwargs)
     
-    def get_summary_table(self):
-        table = Table(title="📊 Scraper Progress Dashboard", box=box.ROUNDED, show_header=True, header_style="bold magenta")
-        table.add_column("County", style="cyan", no_wrap=True)
+    def make_dashboard_layout(self):
+        """Create the main dashboard layout with all panels"""
+        layout = Layout()
+        
+        # Split into header and body
+        layout.split(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=6)
+        )
+        
+        # Split body into left (counties) and right (progress + instructions)
+        layout["body"].split_row(
+            Layout(name="counties", ratio=2),
+            Layout(name="right", ratio=1)
+        )
+        
+        # Split right side into progress and instructions
+        layout["right"].split(
+            Layout(name="progress", ratio=1),
+            Layout(name="instructions", ratio=1)
+        )
+        
+        # Fill in the panels
+        layout["header"].update(self.make_header_panel())
+        layout["counties"].update(self.make_counties_panel())
+        layout["progress"].update(self.make_progress_panel())
+        layout["instructions"].update(self.make_instructions_panel())
+        layout["footer"].update(self.make_footer_panel())
+        
+        return layout
+    
+    def make_header_panel(self):
+        """Header with title and elapsed time"""
+        elapsed = ""
+        if self.start_time:
+            elapsed_sec = time.time() - self.start_time
+            minutes = int(elapsed_sec // 60)
+            seconds = int(elapsed_sec % 60)
+            elapsed = f" | ⏱️  {minutes:02d}:{seconds:02d}"
+        
+        return Panel(
+            f"[bold cyan]🏛️  Nebraska Courts E-Services Eviction Scraper[/bold cyan]{elapsed}",
+            style="bold white on blue"
+        )
+    
+    def make_counties_panel(self):
+        """Table showing status of each county"""
+        table = Table(
+            title="📋 County Status", 
+            box=box.ROUNDED, 
+            show_header=True, 
+            header_style="bold cyan",
+            title_style="bold white"
+        )
+        table.add_column("County", style="cyan", no_wrap=True, width=15)
+        table.add_column("Phase", style="yellow", width=12)
+        table.add_column("Cases", justify="center", width=10)
+        table.add_column("Status", width=15)
+        
+        for county in self.counties_list:
+            if county in self.counties:
+                data = self.counties[county]
+                phase = data['phase']
+                cases_str = f"{data['cases_completed']}/{data['cases_found']}" if data['cases_found'] > 0 else "-"
+                status = data['status']
+                
+                # Color-code based on phase
+                if phase == "Complete":
+                    phase_colored = f"[green]✓ {phase}[/green]"
+                    status_colored = f"[green]{status}[/green]"
+                elif phase == "Processing":
+                    phase_colored = f"[yellow]⚙ {phase}[/yellow]"
+                    status_colored = f"[yellow]{status}[/yellow]"
+                elif phase == "Calendar":
+                    phase_colored = f"[blue]🌐 {phase}[/blue]"
+                    status_colored = f"[blue]{status}[/blue]"
+                else:
+                    phase_colored = f"[dim]{phase}[/dim]"
+                    status_colored = f"[dim]{status}[/dim]"
+                
+                table.add_row(county, phase_colored, cases_str, status_colored)
+        
+        return Panel(table, border_style="cyan")
+    
+    def make_progress_panel(self):
+        """Overall progress statistics"""
+        completed_counties = sum(1 for c in self.counties.values() if c['phase'] == 'Complete')
+        total_counties = len(self.counties_list)
+        
+        progress_text = f"[bold]Counties:[/bold] {completed_counties}/{total_counties}\n"
+        progress_text += f"[bold]Total Cases:[/bold] {self.total_cases}\n"
+        progress_text += f"[bold]Completed:[/bold] {self.completed_cases}\n"
+        
+        if self.total_cases > 0:
+            percentage = (self.completed_cases / self.total_cases) * 100
+            progress_text += f"\n[bold cyan]Progress:[/bold cyan] {percentage:.1f}%"
+        
+        return Panel(
+            progress_text,
+            title="📊 Overall Progress",
+            border_style="green"
+        )
+    
+    def make_instructions_panel(self):
+        """Instructions for the user"""
+        return Panel(
+            "[yellow]ℹ️  Instructions:[/yellow]\n\n"
+            "1. [cyan]Browsers[/cyan] will open\n"
+            "   automatically\n\n"
+            "2. [cyan]Solve reCAPTCHA[/cyan]\n"
+            "   in each browser\n\n"
+            "3. [cyan]Click Search[/cyan]\n"
+            "   button\n\n"
+            "4. Wait for scraping\n"
+            "   to complete",
+            title="💡 What To Do",
+            border_style="yellow"
+        )
+    
+    def make_footer_panel(self):
+        """Footer with system info"""
+        return Panel(
+            "[dim]🚀 Parallel Mode: 6 browsers | 5 workers per county | Interleaved processing\n"
+            "Press Ctrl+C to cancel[/dim]",
+            style="dim white on black"
+        )
+
         table.add_column("Phase", style="yellow")
         table.add_column("Status", style="green")
         table.add_column("Cases Found", justify="right", style="blue")
@@ -174,7 +302,7 @@ def fetch_single_docket(address_url, username, password, index, total, attempt=1
         return ([address_url, 'error', 'error  ', 'error'], should_retry)
 
 
-def process_county_dockets(case_urls, county_name, username, password, debug=False):
+def process_county_dockets(case_urls, county_name, username, password, debug=False, progress_tracker=None, live=None):
     """
     Process all docket URLs for a specific county.
     Returns list of address records.
@@ -184,11 +312,13 @@ def process_county_dockets(case_urls, county_name, username, password, debug=Fal
     
     unique_urls = list(set(case_urls))
     
-    print(f"\n{'='*70}")
-    print(f"PROCESSING {county_name.upper()} DOCKETS")
-    print(f"{'='*70}")
-    print(f"📊 {len(unique_urls)} unique case(s) to retrieve")
-    print(f"⚡ Using up to 5 concurrent connections\n")
+    # Only print if not using dashboard
+    if progress_tracker is None:
+        print(f"\n{'='*70}")
+        print(f"PROCESSING {county_name.upper()} DOCKETS")
+        print(f"{'='*70}")
+        print(f"📊 {len(unique_urls)} unique case(s) to retrieve")
+        print(f"⚡ Using up to 5 concurrent connections\n")
     
     # Track attempts for each URL
     url_attempts = {url: 0 for url in unique_urls}
@@ -230,17 +360,28 @@ def process_county_dockets(case_urls, county_name, username, password, debug=Fal
                     else:
                         # Final result (success or max attempts reached)
                         addresses.append(data_list)
+                        
+                        # Update dashboard if available
+                        if progress_tracker and live:
+                            progress_tracker.update_county(
+                                county_name,
+                                cases_completed=len(addresses)
+                            )
+                            live.update(progress_tracker.make_dashboard_layout())
                 except Exception as e:
-                    print(f"      ❌ Exception for {url}: {e}")
+                    if progress_tracker is None:
+                        print(f"      ❌ Exception for {url}: {e}")
                     addresses.append([url, 'error', 'error', 'error'])
         
         # If we have retries, add a small delay before next batch
         if pending_urls:
             retry_count = len(pending_urls)
-            print(f"\n⏳ Retrying {retry_count} case(s) after brief delay...\n")
+            if progress_tracker is None:
+                print(f"\n⏳ Retrying {retry_count} case(s) after brief delay...\n")
             time.sleep(2)  # Brief pause before retrying
     
-    print(f"✓ {county_name} complete: {len(addresses)} docket(s) processed\n")
+    if progress_tracker is None:
+        print(f"✓ {county_name} complete: {len(addresses)} docket(s) processed\n")
     return addresses
 
 
@@ -523,28 +664,6 @@ def scrapeCalendar():
         progress_tracker.add_county(county)
     progress_tracker.start_time = time.time()
     
-    # Beautiful startup banner with Rich
-    console.print()
-    console.print(Panel.fit(
-        "[bold cyan]Nebraska Courts E-Services Eviction Scraper[/bold cyan]\n"
-        f"[yellow]📅 Target Date:[/yellow] {entry1.get()}\n"
-        f"[yellow]📍 Counties:[/yellow] {len(counties_list)}\n"
-        f"[yellow]🔍 List:[/yellow] {', '.join(counties_list[:5])}{'...' if len(counties_list) > 5 else ''}\n"
-        f"[yellow]⚡ Parallel Browsers:[/yellow] 6\n"
-        f"[yellow]🔧 Docket Workers:[/yellow] 5",
-        title="🚀 Starting Scraper",
-        border_style="green"
-    ))
-    
-    console.print()
-    console.print(Panel(
-        "[bold red]⚠️  IMPORTANT[/bold red]\n"
-        "You must be present to solve reCAPTCHA challenges!\n"
-        "Up to 6 browser windows will open simultaneously.",
-        border_style="red"
-    ))
-    console.print()
-    
     targetDate = entry1.get()
     username= user_entry.get()
     password= pass_entry.get()
@@ -556,82 +675,83 @@ def scrapeCalendar():
     addresses = list()
     address = list()
     
-    # PARALLEL CALENDAR FETCHING WITH INTERLEAVED DOCKET PROCESSING
-    console.print(Panel.fit(
-        "[bold magenta]📌 Strategy:[/bold magenta] Fetch calendars in parallel (6 browsers)\n"
-        "[bold magenta]📌 Strategy:[/bold magenta] Process dockets while next calendar loads\n"
-        "[bold magenta]📌 Workers:[/bold magenta] 5 concurrent docket connections per county",
-        title="⚡ Parallel Processing Mode",
-        border_style="magenta"
-    ))
-    console.print()
-    
     all_addresses = []
     max_parallel_browsers = 6  # High-performance mode - 6 simultaneous CAPTCHAs!
     
-    console.print(Panel(
-        f"[bold cyan]Starting parallel execution with {len(counties_list)} counties[/bold cyan]\n\n"
-        f"[yellow]🌐 Browsers:[/yellow] Up to {max_parallel_browsers} simultaneous sessions\n"
-        f"[yellow]⚡ Workers:[/yellow] 5 concurrent docket connections per county\n"
-        f"[yellow]🔄 Mode:[/yellow] Interleaved processing (calendars + dockets in parallel)",
-        title="🚀 Launching",
-        border_style="cyan",
-        padding=(1, 2)
-    ))
-    console.print()
-    
-    # Use ThreadPoolExecutor to fetch calendars in parallel
-    with ThreadPoolExecutor(max_workers=max_parallel_browsers) as calendar_executor:
-        console.print(f"[bold yellow]🚀 Launching {max_parallel_browsers} parallel browsers...[/bold yellow]")
-        console.print(f"[dim]   Processing {len(counties_list)} counties: {', '.join(counties_list)}[/dim]\n")
-        
-        # Submit calendar fetches
-        calendar_futures = {}
-        for idx, county in enumerate(counties_list, 1):
-            root.update_idletasks()
-            future = calendar_executor.submit(
-                fetch_county_calendar,
-                county,
-                targetDate,
-                idx,
-                len(counties_list),
-                args.debug
-            )
-            calendar_futures[future] = county
-        
-        console.print(f"[green]✓[/green] All {len(counties_list)} browser(s) launched. Waiting for calendars...\n")
-        
-        # Process results as they complete (interleaved with docket fetching)
-        for future in as_completed(calendar_futures):
-            county = calendar_futures[future]
-            try:
-                county_name, county_case_urls = future.result()
-                
-                # Update status: calendar loaded
-                console.print(f"[green]✓[/green] [cyan]{county_name}:[/cyan] Calendar loaded, found {len(county_case_urls)} case(s)")
-                
-                # Immediately process this county's dockets while other calendars are still loading
-                if county_case_urls:
-                    console.print(f"[yellow]⚙[/yellow] [cyan]{county_name}:[/cyan] Processing dockets...")
-                    county_addresses = process_county_dockets(
-                        county_case_urls,
-                        county_name,
-                        username,
-                        password,
-                        args.debug
-                    )
-                    # Add county name to each record
-                    for address_record in county_addresses:
-                        address_record.append(county_name)
-                    all_addresses.extend(county_addresses)
-                    console.print(f"[green]✓[/green] [bold cyan]{county_name}:[/bold cyan] Complete! Retrieved {len(county_addresses)} record(s)\n")
-                else:
-                    console.print(f"[dim]  {county_name}: No cases to process[/dim]\n")
+    # Start the live dashboard
+    with Live(progress_tracker.make_dashboard_layout(), refresh_per_second=4, screen=True) as live:
+        # Use ThreadPoolExecutor to fetch calendars in parallel
+        with ThreadPoolExecutor(max_workers=max_parallel_browsers) as calendar_executor:
+            
+            # Submit calendar fetches
+            calendar_futures = {}
+            for idx, county in enumerate(counties_list, 1):
+                root.update_idletasks()
+                future = calendar_executor.submit(
+                    fetch_county_calendar,
+                    county,
+                    targetDate,
+                    idx,
+                    len(counties_list),
+                    args.debug
+                )
+                calendar_futures[future] = county
+                # Update dashboard to show calendar is loading
+                progress_tracker.update_county(county, phase="Calendar", status="Loading...")
+                live.update(progress_tracker.make_dashboard_layout())
+            
+            # Process results as they complete (interleaved with docket fetching)
+            for future in as_completed(calendar_futures):
+                county = calendar_futures[future]
+                try:
+                    county_name, county_case_urls = future.result()
                     
-            except Exception as e:
-                console.print(f"[bold red]❌ Error processing {county}:[/bold red] {e}")
-                import traceback
-                traceback.print_exc()
+                    # Update dashboard: calendar loaded
+                    progress_tracker.update_county(
+                        county_name, 
+                        phase="Calendar", 
+                        status="Loaded", 
+                        cases_found=len(county_case_urls)
+                    )
+                    progress_tracker.total_cases += len(county_case_urls)
+                    live.update(progress_tracker.make_dashboard_layout())
+                    
+                    # Immediately process this county's dockets while other calendars are still loading
+                    if county_case_urls:
+                        progress_tracker.update_county(county_name, phase="Processing", status="Fetching...")
+                        live.update(progress_tracker.make_dashboard_layout())
+                        
+                        county_addresses = process_county_dockets(
+                            county_case_urls,
+                            county_name,
+                            username,
+                            password,
+                            args.debug,
+                            progress_tracker,
+                            live
+                        )
+                        # Add county name to each record
+                        for address_record in county_addresses:
+                            address_record.append(county_name)
+                        all_addresses.extend(county_addresses)
+                        
+                        progress_tracker.update_county(
+                            county_name, 
+                            phase="Complete", 
+                            status=f"{len(county_addresses)} records",
+                            cases_completed=len(county_addresses)
+                        )
+                        progress_tracker.completed_cases += len(county_addresses)
+                        live.update(progress_tracker.make_dashboard_layout())
+                    else:
+                        progress_tracker.update_county(county_name, phase="Complete", status="No cases")
+                        live.update(progress_tracker.make_dashboard_layout())
+                        
+                except Exception as e:
+                    progress_tracker.update_county(county, phase="Error", status=str(e)[:20])
+                    live.update(progress_tracker.make_dashboard_layout())
+                    import traceback
+                    traceback.print_exc()
     
     # Calculate execution time
     elapsed_time = time.time() - progress_tracker.start_time
