@@ -511,44 +511,34 @@ def scrapeCalendar():
     print("FINALIZING RESULTS")
     print("="*70)
     
-    for address in all_addresses:
-        if (len(address) == 2):
-            address.insert(1, " ")
-            address.insert(2, " ")
-            address.insert(3, " ")
-            address.insert(4, " ")
-        if (len(address) == 3):
-            address.insert(2, " ")
-            address.insert(3, " ")
-            address.insert(4, " ")
-        if (len(address) == 4):
-            address.insert(3, " ")
-            address.insert(4, " ")
-        if (len(address) == 5):
-            address.insert(4, " ")
-        address[5] = " ".join(address[5].split())
-        address.append(address[0][120:122] + "CI" + address[0][131:138])
-        # County is already appended, so we don't need to look it up
-        address.pop(1)
-        address[2] = address[2] + " " + address[3]
-        address.pop(3)
-        address[2].rstrip(" ,")
-    for address in all_addresses:
-        address.pop(0)
-        if len(address) == 6:
-            if address[3] == "":
-                address.pop(3)
+    # Our data structure is: [url, name, address, city_state_zip, county]
+    # We need: [name, address, city_state_zip, case_number, county]
+    
+    formatted_addresses = []
+    for address_record in all_addresses:
+        url = address_record[0]
+        name = address_record[1]
+        address = address_record[2]
+        city_state_zip = address_record[3].strip()  # Clean up extra spaces
+        county = address_record[4]
+        
+        # Extract case number from URL
+        # URL format: ...case_year=25&case_id=0024543...
+        case_number = url[120:122] + "CI" + url[131:138]
+        
+        formatted_addresses.append([name, address, city_state_zip, case_number, county])
+    
     headers = ['name', 'address', 'city state zip', 'case number', 'county']
-    all_addresses.insert(0, headers)
+    formatted_addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     
     print(f"📝 Writing CSV spreadsheet file: {filename}")
     
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerows(all_addresses)
+        writer.writerows(formatted_addresses)
     
-    print(f"✓ Successfully wrote {len(all_addresses)-1} record(s) to {filename}")
+    print(f"✓ Successfully wrote {len(formatted_addresses)-1} record(s) to {filename}")
     
     if sys.platform == "win32":
         winsound.Beep(2500,250)
