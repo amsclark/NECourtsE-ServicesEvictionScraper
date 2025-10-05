@@ -22,8 +22,61 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from rich.console import Console
+from rich.live import Live
+from rich.table import Table
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeRemainingColumn
+from rich.layout import Layout
+from rich import box
 if sys.platform == "win32":
     import winsound
+
+# Initialize Rich console
+console = Console()
+
+# Global progress tracker for dashboard
+class ProgressTracker:
+    def __init__(self):
+        self.counties = {}
+        self.total_cases = 0
+        self.completed_cases = 0
+        self.start_time = None
+        
+    def add_county(self, county, status="⏳ Waiting"):
+        self.counties[county] = {
+            'status': status,
+            'cases_found': 0,
+            'cases_completed': 0,
+            'phase': 'Calendar'
+        }
+    
+    def update_county(self, county, **kwargs):
+        if county in self.counties:
+            self.counties[county].update(kwargs)
+    
+    def get_summary_table(self):
+        table = Table(title="📊 Scraper Progress Dashboard", box=box.ROUNDED, show_header=True, header_style="bold magenta")
+        table.add_column("County", style="cyan", no_wrap=True)
+        table.add_column("Phase", style="yellow")
+        table.add_column("Status", style="green")
+        table.add_column("Cases Found", justify="right", style="blue")
+        table.add_column("Cases Done", justify="right", style="green")
+        
+        for county, data in self.counties.items():
+            cases_display = f"{data['cases_found']}" if data['cases_found'] > 0 else "-"
+            progress_display = f"{data['cases_completed']}/{data['cases_found']}" if data['cases_found'] > 0 else "-"
+            table.add_row(
+                county,
+                data['phase'],
+                data['status'],
+                cases_display,
+                progress_display
+            )
+        
+        return table
+
+progress_tracker = ProgressTracker()
 
 
 # Add argument parsing
@@ -465,23 +518,38 @@ def scrapeCalendar():
     if (c_option.get() == "3"):
         counties_list = ["Douglas", "Lancaster", "Sarpy", "Hall", "Buffalo", "Dodge", "Scotts Bluff", "Madison", "Platte", "Lincoln"]
     
-    print("\n" + "="*70)
-    print("STARTING SCRAPER")
-    print("="*70)
-    print(f"📅 Target Date: {entry1.get()}")
-    print(f"📍 Counties to Process: {len(counties_list)}")
-    print(f"🔍 Counties: {', '.join(counties_list)}")
-    print("="*70)
-    print("\n⚠️  IMPORTANT: You must be present to solve reCAPTCHA challenges!")
-    print("    A browser window will open for each county.\n")
+    # Initialize progress tracker for all counties
+    for county in counties_list:
+        progress_tracker.add_county(county)
+    progress_tracker.start_time = time.time()
+    
+    # Beautiful startup banner with Rich
+    console.print()
+    console.print(Panel.fit(
+        "[bold cyan]Nebraska Courts E-Services Eviction Scraper[/bold cyan]\n"
+        f"[yellow]📅 Target Date:[/yellow] {entry1.get()}\n"
+        f"[yellow]📍 Counties:[/yellow] {len(counties_list)}\n"
+        f"[yellow]🔍 List:[/yellow] {', '.join(counties_list[:5])}{'...' if len(counties_list) > 5 else ''}\n"
+        f"[yellow]⚡ Parallel Browsers:[/yellow] 6\n"
+        f"[yellow]🔧 Docket Workers:[/yellow] 5",
+        title="🚀 Starting Scraper",
+        border_style="green"
+    ))
+    
+    console.print()
+    console.print(Panel(
+        "[bold red]⚠️  IMPORTANT[/bold red]\n"
+        "You must be present to solve reCAPTCHA challenges!\n"
+        "Up to 6 browser windows will open simultaneously.",
+        border_style="red"
+    ))
+    console.print()
     
     targetDate = entry1.get()
     username= user_entry.get()
     password= pass_entry.get()
     validate(targetDate)
     urlEncodedDate = urllib.parse.quote(targetDate, safe='')
-    #label1 = tk.Label(root, text="Processing")
-    #canvas1.create_window(200, 230, window=label1)
     cases = list()
     listrow = list()
     restitution_cases = list()
@@ -489,18 +557,34 @@ def scrapeCalendar():
     address = list()
     
     # PARALLEL CALENDAR FETCHING WITH INTERLEAVED DOCKET PROCESSING
-    print("\n" + "="*70)
-    print("PARALLEL PROCESSING: CALENDARS + DOCKETS")
-    print("="*70)
-    print("📌 Strategy: Fetch calendars in parallel (6 browsers)")
-    print("📌          Process dockets while next calendar loads")
-    print("="*70 + "\n")
+    console.print(Panel.fit(
+        "[bold magenta]📌 Strategy:[/bold magenta] Fetch calendars in parallel (6 browsers)\n"
+        "[bold magenta]📌 Strategy:[/bold magenta] Process dockets while next calendar loads\n"
+        "[bold magenta]📌 Workers:[/bold magenta] 5 concurrent docket connections per county",
+        title="⚡ Parallel Processing Mode",
+        border_style="magenta"
+    ))
+    console.print()
     
     all_addresses = []
     max_parallel_browsers = 6  # High-performance mode - 6 simultaneous CAPTCHAs!
     
+    console.print(Panel(
+        f"[bold cyan]Starting parallel execution with {len(counties_list)} counties[/bold cyan]\n\n"
+        f"[yellow]🌐 Browsers:[/yellow] Up to {max_parallel_browsers} simultaneous sessions\n"
+        f"[yellow]⚡ Workers:[/yellow] 5 concurrent docket connections per county\n"
+        f"[yellow]🔄 Mode:[/yellow] Interleaved processing (calendars + dockets in parallel)",
+        title="🚀 Launching",
+        border_style="cyan",
+        padding=(1, 2)
+    ))
+    console.print()
+    
     # Use ThreadPoolExecutor to fetch calendars in parallel
     with ThreadPoolExecutor(max_workers=max_parallel_browsers) as calendar_executor:
+        console.print(f"[bold yellow]🚀 Launching {max_parallel_browsers} parallel browsers...[/bold yellow]")
+        console.print(f"[dim]   Processing {len(counties_list)} counties: {', '.join(counties_list)}[/dim]\n")
+        
         # Submit calendar fetches
         calendar_futures = {}
         for idx, county in enumerate(counties_list, 1):
@@ -515,14 +599,20 @@ def scrapeCalendar():
             )
             calendar_futures[future] = county
         
+        console.print(f"[green]✓[/green] All {len(counties_list)} browser(s) launched. Waiting for calendars...\n")
+        
         # Process results as they complete (interleaved with docket fetching)
         for future in as_completed(calendar_futures):
             county = calendar_futures[future]
             try:
                 county_name, county_case_urls = future.result()
                 
+                # Update status: calendar loaded
+                console.print(f"[green]✓[/green] [cyan]{county_name}:[/cyan] Calendar loaded, found {len(county_case_urls)} case(s)")
+                
                 # Immediately process this county's dockets while other calendars are still loading
                 if county_case_urls:
+                    console.print(f"[yellow]⚙[/yellow] [cyan]{county_name}:[/cyan] Processing dockets...")
                     county_addresses = process_county_dockets(
                         county_case_urls,
                         county_name,
@@ -534,23 +624,34 @@ def scrapeCalendar():
                     for address_record in county_addresses:
                         address_record.append(county_name)
                     all_addresses.extend(county_addresses)
+                    console.print(f"[green]✓[/green] [bold cyan]{county_name}:[/bold cyan] Complete! Retrieved {len(county_addresses)} record(s)\n")
                 else:
-                    print(f"  No cases to process for {county_name}\n")
+                    console.print(f"[dim]  {county_name}: No cases to process[/dim]\n")
                     
             except Exception as e:
-                print(f"❌ Error processing {county}: {e}")
+                console.print(f"[bold red]❌ Error processing {county}:[/bold red] {e}")
                 import traceback
                 traceback.print_exc()
     
-    print("\n" + "="*70)
-    print("ALL COUNTIES COMPLETE")
-    print("="*70)
-    print(f"✓ Total records retrieved: {len(all_addresses)}\n")
+    # Calculate execution time
+    elapsed_time = time.time() - progress_tracker.start_time
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    
+    # Beautiful completion summary
+    console.print()
+    console.print(Panel.fit(
+        f"[bold green]✓ All {len(counties_list)} Counties Complete![/bold green]\n"
+        f"[cyan]📊 Total Records:[/cyan] {len(all_addresses)}\n"
+        f"[cyan]⏱️  Time Elapsed:[/cyan] {minutes}m {seconds}s\n"
+        f"[cyan]⚡ Avg Speed:[/cyan] {len(all_addresses) / (elapsed_time / 60):.1f} cases/minute",
+        title="🎉 Scraping Complete",
+        border_style="green"
+    ))
+    console.print()
     
     # Format address records for CSV
-    print("="*70)
-    print("FINALIZING RESULTS")
-    print("="*70)
+    console.print("[bold yellow]📝 Finalizing Results...[/bold yellow]")
     
     # Our data structure is: [url, name, address, city_state_zip, county]
     # We need: [name, address, city_state_zip, case_number, county]
@@ -573,20 +674,32 @@ def scrapeCalendar():
     formatted_addresses.insert(0, headers)
     filename = "eviction_cases_for_" + datetime.datetime.strptime(targetDate, '%m/%d/%Y').strftime('%Y-%m-%d') + "_generated_on_" + datetime.datetime.now().strftime('%Y-%m-%d-%H-%M') + ".csv"
     
-    print(f"📝 Writing CSV spreadsheet file: {filename}")
+    console.print(f"[cyan]� Writing to:[/cyan] [bold]{filename}[/bold]")
     
     with open(filename, "w", newline="") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
         writer.writerows(formatted_addresses)
     
-    print(f"✓ Successfully wrote {len(formatted_addresses)-1} record(s) to {filename}")
+    console.print(f"[green]✓ Successfully wrote {len(formatted_addresses)-1} record(s)[/green]")
     
     if sys.platform == "win32":
         winsound.Beep(2500,250)
     
-    print("\n" + "="*70)
-    print("✓ SCRAPING COMPLETE!")
-    print("="*70 + "\n")
+    # Celebration banner
+    console.print()
+    console.print(Panel(
+        f"[bold green]✅ Scraping Complete![/bold green]\n\n"
+        f"[cyan]📁 Output File:[/cyan]\n"
+        f"   [bold white]{filename}[/bold white]\n\n"
+        f"[cyan]📊 Results:[/cyan]\n"
+        f"   [white]{len(all_addresses)} eviction cases[/white]\n"
+        f"   [white]{len(counties_list)} counties processed[/white]\n\n"
+        f"[green]The CSV file has been saved successfully.[/green]",
+        title="🎉 Success",
+        border_style="bold green",
+        padding=(1, 2)
+    ))
+    console.print()
 
     
 
